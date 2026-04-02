@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Next.js Dev Server",
+      "runtimeExecutable": "/Users/opeawo/.nvm/versions/node/v22.22.0/bin/node",
+      "runtimeArgs": ["./node_modules/next/dist/bin/next", "dev"],
+      "port": 3000,
+      "autoPort": true,
+      "env": {
+        "PATH": "/Users/opeawo/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin",
+        "NODE_PATH": "/Users/opeawo/innotour/node_modules"
+      }
+    },
+    {
+      "name": "Drizzle Studio",
+      "runtimeExecutable": "/Users/opeawo/.nvm/versions/node/v22.22.0/bin/node",
+      "runtimeArgs": ["./node_modules/drizzle-kit/bin.cjs", "studio"],
+      "port": 4983,
+      "autoPort": true,
+      "env": {
+        "PATH": "/Users/opeawo/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    }
+  ]
+}
