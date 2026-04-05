@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
-import { createTRPCRouter, protectedProcedure } from "../init";
+import { eq } from "drizzle-orm";
+import { createTRPCRouter, protectedProcedure, publicProcedure } from "../init";
 import { db } from "@/db";
 import {
   tournaments,
@@ -18,6 +18,7 @@ import {
   stepJudgePanelSchema,
 } from "@/lib/validators/tournament";
 import { calculateStages } from "@/lib/stage-algorithm";
+import { resolveUser, verifyTournamentOwnership } from "@/lib/helpers/auth";
 import { TRPCError } from "@trpc/server";
 
 function slugify(name: string): string {
@@ -26,38 +27,6 @@ function slugify(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")
     .slice(0, 100);
-}
-
-async function resolveUser(clerkId: string) {
-  const user = await db.query.users.findFirst({
-    where: eq(users.clerkId, clerkId),
-  });
-  if (!user) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "User not found. Please complete onboarding.",
-    });
-  }
-  return user;
-}
-
-async function verifyTournamentOwnership(
-  tournamentId: string,
-  userId: string
-) {
-  const tournament = await db.query.tournaments.findFirst({
-    where: and(
-      eq(tournaments.id, tournamentId),
-      eq(tournaments.organiserId, userId)
-    ),
-  });
-  if (!tournament) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "Tournament not found.",
-    });
-  }
-  return tournament;
 }
 
 export const tournamentRouter = createTRPCRouter({
@@ -280,5 +249,76 @@ export const tournamentRouter = createTRPCRouter({
       });
 
       return { tournament, criteria };
+    }),
+
+  // Get public tournament by slug
+  getPublic: publicProcedure
+    .input(z.object({ slug: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const tournament = await db.query.tournaments.findFirst({
+        where: eq(tournaments.slug, input.slug),
+      });
+      if (!tournament || tournament.status === "draft") {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Tournament not found.",
+        });
+      }
+
+      const criteria = await db.query.rubricCriteria.findMany({
+        where: eq(rubricCriteria.tournamentId, tournament.id),
+        orderBy: (rc, { asc }) => [asc(rc.sortOrder)],
+      });
+
+      const tournamentStages = await db.query.stages.findMany({
+        where: eq(stages.tournamentId, tournament.id),
+        orderBy: (s, { asc }) => [asc(s.sortOrder)],
+      });
+
+      return {
+        tournament: {
+          id: tournament.id,
+          name: tournament.name,
+          slug: tournament.slug,
+          description: tournament.description,
+          status: tournament.status,
+          submissionType: tournament.submissionType,
+          submissionDeadline: tournament.submissionDeadline,
+          prizeDescription: tournament.prizeDescription,
+          logoUrl: tournament.logoUrl,
+          bannerUrl: tournament.bannerUrl,
+          primaryColor: tournament.primaryColor,
+          enablePublicGallery: tournament.enablePublicGallery,
+          enableLeaderboard: tournament.enableLeaderboard,
+          enablePublicNames: tournament.enablePublicNames,
+          isInviteOnly: tournament.isInviteOnly,
+        },
+        criteria,
+        stages: tournamentStages,
+      };
+    }),
+
+  // List tournaments for current user (organiser view)
+  list: protectedProcedure.query(async ({ ctx }) => {
+    const user = await resolveUser(ctx.userId);
+    return db.query.tournaments.findMany({
+      where: eq(tournaments.organiserId, user.id),
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+    });
+  }),
+
+  // Archive a tournament
+  archive: protectedProcedure
+    .input(z.object({ tournamentId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const user = await resolveUser(ctx.userId);
+      await verifyTournamentOwnership(input.tournamentId, user.id);
+
+      await db
+        .update(tournaments)
+        .set({ status: "archived" })
+        .where(eq(tournaments.id, input.tournamentId));
+
+      return { success: true };
     }),
 });
